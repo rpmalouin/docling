@@ -448,3 +448,7 @@ pip-selfcheck.json
 
 # AI agents
 **/.bob/
+
+# Agent working notes for this fork (never upstream content)
+# FORK.md is deliberately TRACKED (it explains the fork); MEMORY.md is not.
+MEMORY.md
