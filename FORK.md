@@ -7,25 +7,24 @@ SDK and CLI that turns PDFs, Office files, HTML, Markdown, audio, images and XML
 is the sibling fork `/appdata/docling-serve`; the two are combined into one container by
 `/appdata/A--docker_stacks/docling/Dockerfile.fork`.
 
-Baseline: our `main` is **upstream `main` at `6fadbae3` (version 2.139.0) plus one documentation
-commit** (`e55da31f`). The fork was byte-identical to upstream until 2026-10-14, when Ron
-fast-forwarded it to upstream on GitHub (Sync fork, `21588f52` → `6fadbae3`); the local branch was
-rebased onto the new upstream. Drift today: **0 behind / 1 ahead** — the only fork commit is docs.
+Baseline: our `main` is **upstream `main` at `6fadbae3` (version 2.139.0) plus documentation
+commits**. The fork was byte-identical to upstream until 2026-10-14, when Ron fast-forwarded it to
+upstream on GitHub (Sync fork, `21588f52` → `6fadbae3`); the local branch was rebased onto the new
+upstream. Drift today: **0 behind** — the only fork commits are docs.
 
-Because the tree tracks upstream that closely, the engine the stack runs is currently one sync
-behind the checkout: `dist/` holds the `2.137.0` wheel built from `21588f52`, and the live container
-serves it. Rebuilding the wheel is part of deploying an engine change (see Deployment).
+The engine the stack runs tracks this checkout: `dist/` holds the `2.139.0` wheel built from
+`6fadbae3` and the live container serves it (since 2026-10-14). Rebuilding the wheel and bumping the
+pinned filename in `Dockerfile.fork` is part of deploying any engine change (see Deployment).
 
 ## Why a fork
 
 1. **Reproducible engine pin.** The stack installs a wheel built from this checkout, not a PyPI
    artifact: same bytes, rebuildable in place (`uv build --wheel`, ~0.35 s), from a tree we can audit.
-   The repo was kept level with upstream precisely so that this pin is cheap to move — the wheel
-   deployed today (`dist/docling_slim-2.137.0-py3-none-any.whl`, sha256 `5308bc37…`) was built from
-   `21588f52`, five commits past upstream's 2.137.0 release, so it carries fixes the published
-   `docling-slim==2.137.0` wheel does not; a fresh build of the current HEAD is
-   `docling_slim-2.139.0-py3-none-any.whl` (sha256 `ace0f584…`). A plain `pip install docling-slim==…`
-   would be equivalent — and would remove every hook for engine work.
+   The repo is kept level with upstream precisely so that this pin is cheap to move — the `2.139.0`
+   wheel deployed on 2026-10-14 was built from `6fadbae3` and installed over the image's `docling-slim`
+   2.132.0; the previous `2.137.0` wheel (five commits past upstream's 2.137.0 release) stays in `dist/`
+   as the rollback artifact. A plain `pip install docling-slim==…` would be equivalent — and would
+   remove every hook for engine work.
 2. **A home for engine-side changes.** Anything that must change below the serve layer — backends,
    pipelines, models, datamodel — belongs here. The serve fork never patches the engine in place;
    it only calls it.
@@ -36,11 +35,11 @@ serves it. Rebuilding the wheel is part of deploying an engine change (see Deplo
 
 | Area | Change | Commits |
 |------|--------|---------|
-| — | **None yet.** No fork-specific engine change has been made. The wheel installed by the stack is upstream code at `21588f52`. | — |
+| — | **None yet.** No fork-specific engine change has been made. The wheel installed by the stack is upstream code at `6fadbae3` (2.139.0). | — |
 
-Nothing in this repository is ours yet; the first commit is documentation (this file plus the
-`.gitignore` line that ignores `MEMORY.md`). Keep it that way until a real engine change is needed —
-the size of our diff is the cost of the next upstream rebase.
+Nothing in this repository is ours except documentation (this file plus the `.gitignore` line that
+ignores `MEMORY.md`). Keep it that way until a real engine change is needed — the size of our diff is
+the cost of the next upstream rebase.
 
 No upstream PRs: these changes are fork-only by convention.
 
@@ -51,15 +50,18 @@ reconciles). The engine arrives as a wheel layer over the digest-pinned serve im
 
 ```sh
 uv build --wheel --out-dir /appdata/A--docker_stacks/docling/dist /appdata/docling   # ~0.35 s, reproducible
-cd /appdata/A--docker_stacks/docling && docker compose up -d --build docling-serve   # recreates a live container: confirm first
-docker exec docling-serve python -c "import importlib.metadata as m; print(m.version('docling-slim'))"   # 2.137.0 today
+# bump the wheel filename in Dockerfile.fork line 18 first when the version changes
+cd /appdata/A--docker_stacks/docling && docker compose build docling-serve            # prints "fork layer -> docling-slim <v>"
+docker compose stop docling-serve && docker compose rm -f docling-serve && docker compose create docling-serve && docker start docling-serve   # recreates a live container: confirm first
+docker exec docling-serve python -c "import importlib.metadata as m; print(m.version('docling-slim'))"   # 2.139.0 today
 curl -s http://127.0.0.1:5001/version                                                # no auth needed
 ```
 
 **Wheel filename trap:** `Dockerfile.fork` line 18 pins the filename
-(`COPY dist/docling_slim-2.137.0-py3-none-any.whl /tmp/fork/`) while the install step globs
+(`COPY dist/docling_slim-2.139.0-py3-none-any.whl /tmp/fork/`) while the install step globs
 `docling_slim-*.whl`. Bumping the engine version means editing that one COPY line, or the image build
-fails on a missing file.
+fails on a missing file. Keep the superseded wheel in `dist/` — it is the one-command rollback
+(revert the COPY line, rebuild, recreate).
 
 `/version` reports `importlib.metadata` of the *installed* distribution, not `pyproject.toml` — so it
 proves which wheel is installed, and nothing about source content. Do not use it to verify a code
